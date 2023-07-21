@@ -10,7 +10,7 @@ def extract_metadata(url):
 
     r = requests.get(url)
     base_url = get_base_url(r.text, r.url)
-    metadata = extruct.extract(r.text, 
+    metadata = extruct.extract(r.text,
                                 base_url=base_url,
                                 uniform=True,
                                 syntaxes=['json-ld',
@@ -33,7 +33,7 @@ def import_dimensions(infile):
 
 if __name__ == '__main__':
 
-    data = import_dimensions('../data/Dimensions_search.csv')
+    data = import_dimensions('../data/dimensions/Dimensions_search.csv')
 
     urls = data['Source linkout']
 
@@ -66,7 +66,11 @@ if __name__ == '__main__':
         except:
             has_doi.append('Unknown')
 
-    print(license)
+    data['licence'] = license
+    data['datatype'] = datatype
+    data['has_doi'] = has_doi
+
+    data.to_csv('../results/dimensions_data.tsv', sep='\t')
 
     type_count = Counter(datatype)
     types = pd.DataFrame.from_dict(type_count, orient='index')
