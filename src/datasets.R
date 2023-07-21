@@ -3,6 +3,7 @@ library(stringr)
 library(plyr)
 library(tidyr)
 library(shadowtext)
+library(ggrepel)
 library(hrbrthemes)
 
 source('functions.R')
@@ -30,6 +31,15 @@ for (repo in repositories) {
   }
 }
 
+d <- read.csv('datasets/dimensions.tsv', sep = '\t')
+citations <- get_datacite_metrics(d$DOI)
+d <- d %>% left_join(citations, by = join_by(DOI==id))
+data.list[['dimensions']] <- d %>%
+  dplyr::rename(id=DOI,title=Title,pubDate=Publication.Date,datatypes=datatype,alternateId=Data.ID) %>%
+  mutate(keywords=NA,term='plant pollinator agriculture') %>%
+  select(id,datatypes,title,pubDate,keywords,alternateId,views,downloads,citations,term)
+
+
 # Fix dataone date format
 data.list[["dataone"]]$pubDate <- format.Date(data.list[["dataone"]]$pubDate, "%Y-%m-%d")
 
@@ -42,7 +52,7 @@ write.table(data.all, file='../results/datasets.tsv', sep='\t', row.names=F)
 
 data.all <- read.csv('datasets/datasets.tsv', sep = "\t")
 data.all <- data.all %>% as_tibble()
-data.all
+dim(data.all)
 
 # Remove duplicate datasets
 data.uniq <- data.all %>%
@@ -50,22 +60,26 @@ data.uniq <- data.all %>%
   distinct(source,id, .keep_all = T)
 dim(data.uniq)
 
-data.uniq <- data.uniq %>%
-  arrange(title,pubYear,desc(citations),desc(downloads), desc(views)) %>%
-  dplyr::distinct(title,pubYear, .keep_all = T)
-dim(data.uniq)
-
-data.uniq %>%
-  dplyr::count(source)
 
 # Convert dates to year and merge inter-specific and interspecific
 data.uniq <- data.uniq %>%
   dplyr::mutate(pubYear=as.integer(format(as.Date(pubDate),"%Y"))) %>%
   mutate(term=stringr::str_remove(term,"-"))
 
+data.uniq <- data.uniq %>%
+  arrange(title,pubYear,desc(citations),desc(downloads), desc(views)) %>%
+  dplyr::distinct(title,pubYear, .keep_all = T)
 dim(data.uniq)
+
 data.uniq %>%
-  dplyr::count(source)
+  dplyr::count(source) %>%
+  mutate(perc=round(n/sum(n)*100,2))
+
+min(data.uniq$pubYear, na.rm = T)
+max(data.uniq$pubYear, na.rm = T)
+data.uniq %>%
+  filter(is.na(pubDate)) %>%
+  select(id,title)
 
 # Datasets by publication year
 plt <- data.uniq %>%
@@ -76,10 +90,10 @@ plt <- data.uniq %>%
   geom_point(size=3, shape=16, color='#076fa2') +
   geom_line(linewidth=1, color='#076fa2') +
   coord_cartesian(clip = "off") +
-  labs(title = "Cumulative number of datasets per year", subtitle = stringr::str_wrap('Accumlated number of datasets published from 2003 to 2023 in Dryad, DataONE, Figshare and Zenodo', 60)) +
+  labs(title = "Cumulative number of datasets per year", subtitle = stringr::str_wrap('Accumlated number of datasets published from 2006 to 2023 in Dryad, DataONE, Figshare, Zenodo and Dimesions', 60)) +
   xlab("Year") +
   ylab('Number of datasets') +
-  scale_x_continuous(breaks = seq(2003, 2023, 4)) +
+  scale_x_continuous(breaks = seq(2006, 2023, 4)) +
   scale_y_continuous() +
   theme(
     plot.title = element_text(size=12, face='bold'),
@@ -102,6 +116,13 @@ dim(data.filtered)
 data.uniq %>%
   arrange(desc(citations)) %>%
   select(id,alternateId,title,citations,downloads, views)
+
+data.uniq %>%
+  select(id,alternateId,title,citations,downloads, views) %>%
+  dplyr::summarise(tc=sum(citations), td=sum(downloads), tv=sum(views))
+
+# Percentage of datasets without citations
+round(sum(data.uniq$citations==0)/nrow(data.uniq)*100,2)
 
 # Citations, downloads and views
 # Remove datasets with publications DOI instead of dataset DOI (e.g. PLOSOne DOI)
@@ -126,9 +147,12 @@ dim(journal.datasets)
 journal.datasets %>%
   dplyr::count(source)
 
+metrics.clean %>%
+  arrange(desc(citations))
 
 metrics.clean %>%
-  summarise(tc=sum(citations), tcm=mean(citations), sdcm= sd(citations) )
+  dplyr::summarise(tc=sum(citations), td=sum(downloads), tv=sum(views))
+#  summarise(tc=sum(citations), tcm=mean(citations), sdcm= sd(citations) )
 
 # Metrics by source
 metrics.all <- metrics.clean %>%
@@ -205,19 +229,19 @@ plt <- metrics %>%
   ) +
   theme(plot.margin = margin(0.01, 0.05, 0.02, 0.01, "npc"))
 plt
-
+ggsave('../results/dataset-metrics.png', plt, dpi = 300)
 
 # Licenses
 licenses <- data.uniq
 
 licenses[is.na(licenses$license),]$license <- 'None'
-licenses[licenses$license == "https://creativecommons.org/publicdomain/zero/1.0/",]$license <- 'CC0 1.0'
-licenses[licenses$license == "https://creativecommons.org/licenses/by/4.0/",]$license <- 'CC-BY 4.0'
-licenses[licenses$license == "https://creativecommons.org/licenses/by-nc/4.0/",]$license <- 'CC-BY-NC 4.0'
-licenses[licenses$license == "https://creativecommons.org/licenses/by-nc-sa/4.0/",]$license <- 'CC-BY-NC-SA 4.0'
-licenses[licenses$license == "https://creativecommons.org/licenses/by-nc/3.0/",]$license < 'CC-BY-NC 3.0'
-licenses[licenses$license == "https://creativecommons.org/licenses/by-sa/4.0/",]$license <- 'CC-BY-SA 4.0'
-licenses[licenses$license == "https://creativecommons.org/licenses/by/3.0/us/",]$license <- 'CC-BY 3.0 US'
+licenses[licenses$license == "https://creativecommons.org/publicdomain/zero/1.0/",]$license <- 'CC0-1.0'
+licenses[licenses$license == "https://creativecommons.org/licenses/by/4.0/",]$license <- 'CC-BY-4.0'
+licenses[licenses$license == "https://creativecommons.org/licenses/by-nc/4.0/",]$license <- 'CC-BY-NC4.0'
+licenses[licenses$license == "https://creativecommons.org/licenses/by-nc-sa/4.0/",]$license <- 'CC-BY-NC-SA-4.0'
+licenses[licenses$license == "https://creativecommons.org/licenses/by-nc/3.0/",]$license < 'CC-BY-NC-3.0'
+licenses[licenses$license == "https://creativecommons.org/licenses/by-sa/4.0/",]$license <- 'CC-BY-SA-4.0'
+licenses[licenses$license == "https://creativecommons.org/licenses/by/3.0/us/",]$license <- 'CC-BY-3.0 US'
 licenses[licenses$license == "https://www.gnu.org/copyleft/gpl.html",]$license <- 'GPL'
 licenses[licenses$license == "https://opensource.org/licenses/MIT",]$license <- 'MIT'
 licenses[licenses$license == "https://www.gnu.org/licenses/gpl-3.0.html",]$license <- 'GPL-3.0'
@@ -239,7 +263,8 @@ licenses.count <- licenses %>%
   arrange(n) %>%
   mutate(license=factor(license,license))
 
-licenses.count
+licenses.count %>%
+  mutate(perc=round(n/sum(n)*100,2))
 p <- licenses.count %>%
   ggplot(aes(x=license,y=n)) +
   geom_segment(
@@ -478,12 +503,58 @@ ggsave('../results/datasets-keywords.png', plt, dpi = 150)
 
 
 
+data.uniq$hasDOI <- FALSE
 # Has DOI
-doi <- data.uniq %>%
-  filter(source!='figshare') %>%
-  filter(stringr::str_detect(id, "^10\\.") | stringr::str_detect(id, "^doi:") | stringr::str_detect(id, "^https?:\\/\\/dx\\.doi") | stringr::str_detect(id, "^https?:\\/\\/doi"))
-dim(doi)/data.uniq %>% filter(source!='figshare') %>% dplyr::count() %>% pull(n)
+data.uniq <- data.uniq %>%
+  mutate(hasDOI=stringr::str_detect(id, "^10\\.") | stringr::str_detect(id, "^doi:") | stringr::str_detect(id, "^https?:\\/\\/dx\\.doi") | stringr::str_detect(id, "^https?:\\/\\/doi"))
+
+#dim(doi)/data.uniq %>% filter(source!='figshare') %>% dplyr::count() %>% pull(n)
 
 non.doi <- data.uniq %>%
   filter(!(stringr::str_detect(id, "^10\\.") | stringr::str_detect(id, "^doi:") | stringr::str_detect(id, "^https?:\\/\\/dx\\.doi") | stringr::str_detect(id, "^https?:\\/\\/doi")))
-non.doi$id
+non.doi
+
+data.hasDOI <- data.uniq %>%
+  filter(source!='figshare') %>%
+  dplyr::count(hasDOI, name='cnt') %>%
+  arrange(hasDOI) %>%
+  mutate(perc = cnt/sum(cnt)) %>%
+  mutate(csum = rev(cumsum(rev(perc))),
+         ypos = perc/2 + lead(csum,1)) %>%
+  mutate(ypos = if_else(is.na(ypos), perc/2,ypos))
+
+# Number of datasets by source
+plt <- data.hasDOI %>%
+  ggplot(aes(x="", y=perc, fill=(hasDOI))) +
+  geom_col(width = 1,color=1) +
+  coord_polar("y", start = 0) +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(aes(y = ypos,
+                       label = glue::glue("{scales::percent(perc)}"),
+                       fill = hasDOI),
+                   size = 4,
+                   nudge_x = 0.7,
+                   show.legend =F) +
+  labs(title = "Percentage of datasets with(out) DOI") +
+  guides(fill = guide_legend(title = "Has DOI?")) +
+  theme_ipsum(
+    base_family = 'Arial'
+  ) +
+  theme(
+    plot.title = element_text(size=18, face='bold', hjust = 0.5),
+    axis.text.x=element_blank(), #remove x axis labels
+    axis.ticks.x=element_blank(), #remove x axis ticks
+    axis.text.y=element_blank(),  #remove y axis labels
+    axis.ticks.y=element_blank(),  #remove y axis ticks
+    axis.title = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+  )
+plt
+ggsave('../results/datasets-has-doi.png', plot = plt, dpi = 300)
